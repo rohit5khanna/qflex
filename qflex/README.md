@@ -23,17 +23,17 @@ QFlex is a distribution family that uses custom basis functions to fit quantile 
 ```python
 from qflex import QFlex, LogQFlex, LogitQFlex, ConstraintType
 
-# Fit an unbounded distribution
-qflex = QFlex(x_data, y_data, terms=5)
+# 3-point expert elicitation (default terms=3)
+qflex = QFlex([12, 25, 45], [0.10, 0.50, 0.90])
 
 # With non-negativity constraints on coefficients
-qflex = QFlex(x_data, y_data, terms=5, constraint_type=ConstraintType.A)
+qflex = QFlex(x_data, y_data, constraint_type=ConstraintType.A)
 
 # Semibounded distribution (e.g., income, time-to-event)
-log_qflex = LogQFlex(x_data, y_data, lower_bound=0, terms=5)
+log_qflex = LogQFlex(x_data, y_data, lower_bound=0)
 
 # Bounded distribution (e.g., proportions, percentages)
-logit_qflex = LogitQFlex(x_data, y_data, lower_bound=0, upper_bound=1, terms=5)
+logit_qflex = LogitQFlex(x_data, y_data, lower_bound=0, upper_bound=1)
 
 # Verify Proposition 4 conditions
 result = qflex.check_proposition4()
@@ -48,7 +48,7 @@ print(f"Satisfied: {result['satisfied']}, Margin: {result['margin']:.4f}")
 | `A` | All coefficients non-negative (k ≥ 2) |
 | `TL` | Leading tail coefficients non-negative |
 | `TA` | All tail coefficients non-negative |
-| `TC` | Proposition 5: tail-center margin constraint |
+| `TC` | Proposition 5: tail-center margin (linear CVXPY solver) |
 | `TC_MAG` | Proposition 4: m_tail > M_center on grid |
 
 ## Basis Functions
@@ -58,6 +58,8 @@ QFlex uses three basis function families:
 - **Right tail (f1)**: `-ln(1-p)` raised to powers 1, 2, 3, ...
 - **Left tail (f2)**: `(-1)^(i+1) × [ln(p)]^i` for orders 1, 2, 3, ...
 - **Center (f3)**: `(p - γ)^(2i-1)` for odd powers 1, 3, 5, ...
+
+Terms cycle constant → f1 → f2 → f3 at increasing orders. The default `terms=3` fits a₀, R¹, L¹ (suitable for P10/P50/P90). Increase `terms` to unlock centre and higher-order tail modes.
 
 The gamma (γ) parameter controls the center of the distribution and is estimated from the data using P10, P50, and P90 quantiles.
 

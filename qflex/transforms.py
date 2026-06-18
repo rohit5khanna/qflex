@@ -32,20 +32,17 @@ class LogQFlex(QFlexBase):
     lower_bound : float, optional
         Lower bound of the distribution (default 0).
     terms : int, optional
-        Number of terms in the expansion (default 5).
+        Number of terms in the expansion (default 3).
     constraint_type : ConstraintType, optional
         Constraint to apply during fitting (default: unconstrained).
-    tc_method : str, optional
-        For TC constraint: 'nonlinear' or 'linear'.
     """
     
     def __init__(self,
                  x_data,
                  y_data,
                  lower_bound: float = 0,
-                 terms: int = 5,
-                 constraint_type: ConstraintType = ConstraintType.NONE,
-                 tc_method: str = 'nonlinear'):
+                 terms: int = 3,
+                 constraint_type: ConstraintType = ConstraintType.NONE):
         self.lower_bound = float(lower_bound)
         self.x_data = np.asarray(x_data, dtype=float)
         self.y_data = np.asarray(y_data, dtype=float)
@@ -58,7 +55,7 @@ class LogQFlex(QFlexBase):
         self.z_data = np.log(self.x_data - self.lower_bound)
         
         # Fit QFlex on transformed data
-        self.qflex = QFlex(self.z_data, self.y_data, terms, constraint_type, tc_method=tc_method)
+        self.qflex = QFlex(self.z_data, self.y_data, terms, constraint_type)
         
         self.is_feasible = self.qflex.is_feasible and self._check_monotonicity()
         self.coefficients = self.qflex.coefficients
@@ -166,11 +163,9 @@ class LogitQFlex(QFlexBase):
     upper_bound : float, optional
         Upper bound of the distribution (default 1).
     terms : int, optional
-        Number of terms in the expansion (default 5).
+        Number of terms in the expansion (default 3).
     constraint_type : ConstraintType, optional
         Constraint to apply during fitting (default: unconstrained).
-    tc_method : str, optional
-        For TC constraint: 'nonlinear' or 'linear'.
     """
     
     def __init__(self,
@@ -178,9 +173,8 @@ class LogitQFlex(QFlexBase):
                  y_data,
                  lower_bound: float = 0,
                  upper_bound: float = 1,
-                 terms: int = 5,
-                 constraint_type: ConstraintType = ConstraintType.NONE,
-                 tc_method: str = 'nonlinear'):
+                 terms: int = 3,
+                 constraint_type: ConstraintType = ConstraintType.NONE):
         self.lower_bound = float(lower_bound)
         self.upper_bound = float(upper_bound)
         self.x_data = np.asarray(x_data, dtype=float)
@@ -197,7 +191,7 @@ class LogitQFlex(QFlexBase):
         self.z_data = np.log((self.x_data - self.lower_bound) / (self.upper_bound - self.x_data))
         
         # Fit QFlex on transformed data
-        self.qflex = QFlex(self.z_data, self.y_data, terms, constraint_type, tc_method=tc_method)
+        self.qflex = QFlex(self.z_data, self.y_data, terms, constraint_type)
         
         self.is_feasible = self.qflex.is_feasible
         self.coefficients = self.qflex.coefficients

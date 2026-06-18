@@ -16,11 +16,7 @@ QFlex is especially well suited for **expert elicitation** (fitting from P10/P50
 pip install qflex
 ```
 
-To enable the linear Proposition 5 solver (requires CVXPY):
-
-```bash
-pip install qflex[linear]
-```
+CVXPY is included as a core dependency for the Proposition 5 (`TC`) linear solver.
 
 ---
 
@@ -34,10 +30,15 @@ Provide cumulative probabilities and their corresponding quantile values — exa
 import numpy as np
 from qflex import QFlex, LogQFlex, LogitQFlex, ConstraintType
 
-y_data = [0.10, 0.25, 0.50, 0.75, 0.90]   # cumulative probabilities
-x_data = [12.0, 18.0, 25.0, 34.0, 45.0]   # corresponding quantile values
+# Minimal 3-point elicitation (P10, P50, P90) — default terms=3
+y_elicit = [0.10, 0.50, 0.90]
+x_elicit = [12.0, 25.0, 45.0]
+qf = QFlex(x_elicit, y_elicit)  # terms=3 by default
 
-qf = QFlex(x_data, y_data, terms=5)
+# Richer fit when more quantiles are available
+y_data = [0.10, 0.25, 0.50, 0.75, 0.90]
+x_data = [12.0, 18.0, 25.0, 34.0, 45.0]
+qf5 = QFlex(x_data, y_data, terms=5)
 
 print(qf.quantile([0.1, 0.5, 0.9]))        # → quantile values at given probabilities
 print(qf.pdf([0.1, 0.5, 0.9]))             # → density at those cumulative probabilities
@@ -56,8 +57,8 @@ If you have raw observations rather than pre-computed quantiles, use `fit_from_d
 ```python
 data = np.random.lognormal(mean=3, sigma=0.5, size=200)
 
-qf       = QFlex.fit_from_data(data, terms=5)
-log_qf   = LogQFlex.fit_from_data(data, lower_bound=0, terms=5)
+qf       = QFlex.fit_from_data(data)
+log_qf   = LogQFlex.fit_from_data(data, lower_bound=0)
 ```
 
 ### Summarise and plot
@@ -78,7 +79,7 @@ fig.savefig('fit.png')
 For data with no natural bounds (e.g. log-returns, temperature anomalies).
 
 ```python
-qf = QFlex(x_data, y_data, terms=5)
+qf = QFlex(x_data, y_data)
 ```
 
 ### Semibounded: `LogQFlex`
@@ -87,7 +88,7 @@ For data with a lower bound (e.g. income, asset prices, durations).
 Internally fits QFlex to `ln(x - lower_bound)` and maps all outputs back to the original scale.
 
 ```python
-qf = LogQFlex(x_data, y_data, lower_bound=0, terms=5)
+qf = LogQFlex(x_data, y_data, lower_bound=0)
 ```
 
 ### Bounded: `LogitQFlex`
@@ -96,7 +97,7 @@ For data bounded on both sides (e.g. proportions, test scores, rates).
 Internally fits QFlex to `logit((x - L) / (U - L))`.
 
 ```python
-qf = LogitQFlex(x_data, y_data, lower_bound=0, upper_bound=1, terms=5)
+qf = LogitQFlex(x_data, y_data, lower_bound=0, upper_bound=1)
 ```
 
 ---
@@ -111,15 +112,12 @@ Unconstrained least-squares fitting does not guarantee a valid (positive) PDF. T
 | `ConstraintType.A` | All coefficients ≥ 0 for k ≥ 2 (Prop 3) | Most restrictive |
 | `ConstraintType.TL` | Leading tail coefficients ≥ 0 | High |
 | `ConstraintType.TA` | All tail coefficients ≥ 0 | Medium |
-| `ConstraintType.TC` | Prop 5 tail-centre margin > 0 via SLSQP | Low |
+| `ConstraintType.TC` | Prop 5 tail-centre margin > 0 (linear CVXPY solver) | Low |
 | `ConstraintType.TC_MAG` | Prop 4 grid-based m_tail > M_center | Least restrictive |
 
 ```python
-qf = QFlex(x_data, y_data, terms=5, constraint_type=ConstraintType.TC_MAG)
-
-# TC with linear reformulation (requires cvxpy)
-qf = QFlex(x_data, y_data, terms=5,
-           constraint_type=ConstraintType.TC, tc_method='linear')
+qf = QFlex(x_data, y_data, constraint_type=ConstraintType.TC_MAG)
+qf = QFlex(x_data, y_data, constraint_type=ConstraintType.TC)  # Prop 5
 ```
 
 ---
@@ -132,9 +130,9 @@ All three classes (`QFlex`, `LogQFlex`, `LogitQFlex`) share the following interf
 
 | Class | Signature |
 |---|---|
-| `QFlex` | `QFlex(x_data, y_data, terms=5, constraint_type=..., tc_method='nonlinear')` |
-| `LogQFlex` | `LogQFlex(x_data, y_data, lower_bound, terms=5, ...)` |
-| `LogitQFlex` | `LogitQFlex(x_data, y_data, lower_bound, upper_bound, terms=5, ...)` |
+| `QFlex` | `QFlex(x_data, y_data, terms=3, constraint_type=...)` |
+| `LogQFlex` | `LogQFlex(x_data, y_data, lower_bound, terms=3, ...)` |
+| `LogitQFlex` | `LogitQFlex(x_data, y_data, lower_bound, upper_bound, terms=3, ...)` |
 
 ### Instance Methods
 
@@ -153,7 +151,7 @@ All three classes (`QFlex`, `LogQFlex`, `LogitQFlex`) share the following interf
 
 | Method | Description |
 |---|---|
-| `fit_from_data(data, terms=5, constraint_type=..., **kwargs)` | Fit from raw observations using Weibull plotting positions `y_i = i/(n+1)` |
+| `fit_from_data(data, terms=3, constraint_type=..., **kwargs)` | Fit from raw observations using Weibull plotting positions `y_i = i/(n+1)` |
 
 ### Utility
 
@@ -183,7 +181,19 @@ Q(p) = Σ_{j=1}^{m} [ a_j · R_j(p)  +  b_j · L_j(p)  +  c_j · C_j(p) ]
 | **Left tail** L_j(p) | `(-1)^(j+1) · [ln(p)]^j` | Controls left (lower) tail behaviour |
 | **Center** C_j(p) | `(p - γ)^(2j-1)` | Controls centre/body behaviour |
 
-The `terms` parameter sets the depth j = 1, …, m of each basis family. Coefficients are fitted by least squares (exact when `len(data) == terms`, overdetermined otherwise).
+The `terms` parameter controls how many basis functions are included. Terms cycle through constant → R¹ → L¹ → C¹ → R² → L² → C² → … as `terms` increases:
+
+| `terms` | Basis terms added | Shape capability |
+|---|---|---|
+| 3 | a₀, R¹, L¹ | Minimal tails; no centre term |
+| 4 | + C¹ | First centre mode |
+| 5 | + R² | Richer right tail |
+| 7 | + L², C² | Second-order tail and centre modes |
+| 9 | + R³ | Third-order right tail |
+
+Increase `terms` when you have more quantile data and need additional flexibility. You need at least as many data points as terms.
+
+Coefficients are fitted by least squares (exact when `len(data) == terms`, overdetermined otherwise).
 
 ### The Gamma (γ) Parameter
 
@@ -211,7 +221,7 @@ The paper establishes three sufficient conditions for a strictly positive PDF:
 
 - **Proposition 3 (A)**: All non-intercept coefficients non-negative → guarantees q(p) > 0 everywhere. Most conservative.
 - **Proposition 4 (TC_MAG)**: Grid-based check that the minimum tail derivative contribution exceeds the maximum centre contribution: `m_tail > M_center`. Less conservative, verifiable numerically.
-- **Proposition 5 (TC)**: Sharper analytical condition on the tail-to-centre basis ratio, enforced via SLSQP or a linear auxiliary-variable reformulation. Closest to the true feasibility boundary.
+- **Proposition 5 (TC)**: Sharper analytical condition on the tail-to-centre basis ratio, enforced via a linear auxiliary-variable reformulation (CVXPY). Closest to the true feasibility boundary.
 
 ### Bounded and Semibounded Variants
 
@@ -223,6 +233,23 @@ For restricted domains, QFlex is applied in a transformed space:
 | `LogitQFlex` | `z = ln((x−L)/(U−x))` | `x = L + (U−L) / (1 + exp(−z))` |
 
 Fitting, PDF, CDF, and sampling all happen on z; every output is mapped back to the original x scale transparently.
+
+---
+
+## Tutorial
+
+An interactive Marimo notebook walks through the QFlex paper concepts and library API — from expert elicitation to basis functions and feasibility constraints (Propositions 3–5).
+
+```bash
+pip install -e ".[notebook]"
+marimo edit notebooks/qflex_tutorial.py
+```
+
+Export a shareable HTML version:
+
+```bash
+marimo export html notebooks/qflex_tutorial.py -o qflex_tutorial.html
+```
 
 ---
 

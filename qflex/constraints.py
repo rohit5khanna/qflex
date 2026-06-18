@@ -140,8 +140,7 @@ def solve_with_constraints(Y: np.ndarray,
                           x_data: np.ndarray,
                           terms: int,
                           gamma: float,
-                          constraint_type: ConstraintType,
-                          tc_method: str = 'nonlinear') -> np.ndarray:
+                          constraint_type: ConstraintType) -> np.ndarray:
     """
     Solve the constrained fitting problem.
     
@@ -159,8 +158,6 @@ def solve_with_constraints(Y: np.ndarray,
         Center parameter.
     constraint_type : ConstraintType
         Which constraint to enforce.
-    tc_method : str
-        For TC constraint: 'nonlinear' uses SLSQP, 'linear' uses auxiliary variables.
         
     Returns
     -------
@@ -175,12 +172,7 @@ def solve_with_constraints(Y: np.ndarray,
     }
     
     if constraint_type == ConstraintType.TC:
-        if tc_method == 'linear':
-            return solve_tail_center_linear(Y, x_data, terms, gamma)
-        elif tc_method == 'nonlinear':
-            return solve_tail_center(Y, x_data, terms, gamma)
-        else:
-            raise QFlexError(f"Unknown tc_method: {tc_method}. Use 'linear' or 'nonlinear'")
+        return solve_tail_center(Y, x_data, terms, gamma)
     
     solver = solvers.get(constraint_type)
     if solver is None:
@@ -269,82 +261,12 @@ def solve_with_bounds(Y: np.ndarray, x_data: np.ndarray, terms: int,
 
 def solve_tail_center(Y: np.ndarray, x_data: np.ndarray, terms: int, gamma: float) -> np.ndarray:
     """
-    Solve with Proposition 5 constraint: tail-center margin > 0.
-    
-    Requires all tail coefficients >= 0 and the margin m_TC(a) > 0.
-    Uses SLSQP with a nonlinear constraint.
-    """
-    all_tail_indices = get_tail_indices(terms, leading_only=False)
-    
-    bounds = [(None, None) for _ in range(terms)]
-    for idx in all_tail_indices:
-        bounds[idx] = (0, None)
-    
-    # Start from A+ solution for a better initial point
-    try:
-        pos_all_lb = np.full(terms, -np.inf)
-        pos_all_ub = np.full(terms, np.inf)
-        pos_all_lb[1:] = 0.0
-        pos_all_result = lsq_linear(Y, x_data, bounds=(pos_all_lb, pos_all_ub))
-        if pos_all_result.success:
-            initial_guess = pos_all_result.x
-        else:
-            initial_guess = get_initial_guess(Y, x_data, terms)
-            initial_guess = np.maximum(initial_guess, 1e-6)
-    except Exception:
-        initial_guess = get_initial_guess(Y, x_data, terms)
-        initial_guess = np.maximum(initial_guess, 1e-6)
-
-    def objective(a):
-        return np.sum((Y @ a - x_data) ** 2)
-
-    MARGIN_TOLERANCE = 1e-8
-    
-    def margin_constraint(a):
-        return tail_center_margin_coeff(a, terms, gamma)
-    
-    nlc = NonlinearConstraint(margin_constraint, MARGIN_TOLERANCE, np.inf)
-    
-    result = minimize(objective, initial_guess, method='SLSQP',
-                     bounds=bounds, constraints=[nlc],
-                     options={'ftol': 1e-9, 'maxiter': 2000, 'disp': False})
-    
-    if not result.success:
-        # Retry with relaxed tolerance
-        try:
-            nlc_relaxed = NonlinearConstraint(margin_constraint, MARGIN_TOLERANCE * 0.1, np.inf)
-            result = minimize(objective, initial_guess, method='SLSQP',
-                             bounds=bounds, constraints=[nlc_relaxed],
-                             options={'ftol': 1e-9, 'maxiter': 2000, 'disp': False})
-        except Exception:
-            pass
-        
-        if not result.success:
-            raise QFlexError(f"Tail-center constraint optimization failed: {result.message}")
-    
-    coefficients = result.x.copy()
-    
-    final_margin = tail_center_margin_coeff(coefficients, terms, gamma)
-    if final_margin <= 0:
-        raise QFlexError(
-            f"Proposition 5 constraint not satisfied: margin = {final_margin:.2e} <= 0"
-        )
-    
-    for idx in all_tail_indices:
-        if coefficients[idx] < 0:
-            coefficients[idx] = 0.0
-    
-    return coefficients
-
-
-def solve_tail_center_linear(Y: np.ndarray, x_data: np.ndarray, terms: int, gamma: float) -> np.ndarray:
-    """
     Solve Proposition 5 using a linear reformulation with auxiliary variables.
-    
+
     For each center coefficient a_k, introduce u_k >= 0 and v_k >= 0 such that
     a_k = u_k - v_k and |a_k| = u_k + v_k. This makes the margin constraint linear:
         m_TC = (a_2 + a_3) - Σ M_j(u_k + v_k) >= 0
-    
+
     Uses CVXPY if available, otherwise falls back to scipy.optimize.
     """
     all_tail_indices = get_tail_indices(terms, leading_only=False)

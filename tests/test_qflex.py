@@ -33,6 +33,15 @@ def fine_data():
 # ---------------------------------------------------------------------------
 
 class TestQFlex:
+    def test_default_terms_three(self):
+        """Default terms=3 suits P10/P50/P90 expert elicitation."""
+        y = [0.10, 0.50, 0.90]
+        x = [12.0, 25.0, 45.0]
+        qf = QFlex(x, y)
+        assert qf.terms == 3
+        assert len(qf.coefficients) == 3
+        np.testing.assert_allclose(qf.quantile(y), x, rtol=1e-4)
+
     def test_basic_fit(self, basic_data):
         x, y = basic_data
         qf = QFlex(x, y, terms=5)

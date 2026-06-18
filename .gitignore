@@ -26,6 +26,10 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+# Marimo
+notebooks/__marimo__/
+notebooks/*.html
+
 # IDEs
 .vscode/
 .idea/

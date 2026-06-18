@@ -128,9 +128,8 @@ class QFlexBase(ABC):
         return result['satisfied']
 
     @classmethod
-    def fit_from_data(cls, data, terms=5,
-                      constraint_type=ConstraintType.NONE,
-                      tc_method='nonlinear', **kwargs):
+    def fit_from_data(cls, data, terms=3,
+                      constraint_type=ConstraintType.NONE, **kwargs):
         """
         Fit a QFlex distribution directly from raw data using Weibull plotting positions.
 
@@ -142,11 +141,9 @@ class QFlexBase(ABC):
         data : array-like
             Raw observations. Will be sorted internally.
         terms : int, optional
-            Number of basis terms (default 5).
+            Number of basis terms (default 3).
         constraint_type : ConstraintType, optional
             Constraint to apply during fitting (default: unconstrained).
-        tc_method : str, optional
-            For TC constraint: 'nonlinear' or 'linear' (default 'nonlinear').
         **kwargs
             Additional arguments passed to the class constructor.
             Use lower_bound for LogQFlex, lower_bound and upper_bound for LogitQFlex.
@@ -160,8 +157,8 @@ class QFlexBase(ABC):
         --------
         >>> import numpy as np
         >>> data = np.random.lognormal(mean=3, sigma=0.5, size=100)
-        >>> qf = QFlex.fit_from_data(data, terms=5)
-        >>> log_qf = LogQFlex.fit_from_data(data, lower_bound=0, terms=5)
+        >>> qf = QFlex.fit_from_data(data, terms=3)
+        >>> log_qf = LogQFlex.fit_from_data(data, lower_bound=0, terms=3)
         """
         data = np.sort(np.asarray(data, dtype=float))
         n = len(data)
@@ -170,8 +167,7 @@ class QFlexBase(ABC):
                 f"Need at least {terms} data points for a {terms}-term fit, got {n}"
             )
         y = np.arange(1, n + 1) / (n + 1)
-        return cls(data, y, terms=terms, constraint_type=constraint_type,
-                   tc_method=tc_method, **kwargs)
+        return cls(data, y, terms=terms, constraint_type=constraint_type, **kwargs)
 
     def summary(self):
         """
@@ -180,9 +176,13 @@ class QFlexBase(ABC):
         Includes class info, fit parameters, moments, and feasibility.
         """
         m = self.moments(order=4)
-        p10 = float(self.quantile(np.array([0.10])))
-        p50 = float(self.quantile(np.array([0.50])))
-        p90 = float(self.quantile(np.array([0.90])))
+        p10 = self.quantile(0.10)
+        p50 = self.quantile(0.50)
+        p90 = self.quantile(0.90)
+        if hasattr(p10, 'item'):
+            p10, p50, p90 = p10.item(), p50.item(), p90.item()
+        else:
+            p10, p50, p90 = float(p10), float(p50), float(p90)
 
         w = 40
         sep = '-' * w
@@ -282,24 +282,20 @@ class QFlex(QFlexBase):
     y_data : array-like
         Corresponding cumulative probabilities in (0, 1).
     terms : int, optional
-        Number of terms in the expansion (default 5).
+        Number of terms in the expansion (default 3).
     constraint_type : ConstraintType, optional
         Constraint to apply during fitting (default: unconstrained).
-    tc_method : str, optional
-        For TC constraint: 'nonlinear' (SLSQP) or 'linear' (auxiliary variables).
     """
     
     def __init__(self,
                  x_data,
                  y_data,
-                 terms: int = 5,
-                 constraint_type: ConstraintType = ConstraintType.NONE,
-                 tc_method: str = 'nonlinear'):
+                 terms: int = 3,
+                 constraint_type: ConstraintType = ConstraintType.NONE):
         self.x_data = np.asarray(x_data, dtype=float)
         self.y_data = np.asarray(y_data, dtype=float)
         self.terms = terms
         self.constraint_type = constraint_type
-        self.tc_method = tc_method
         
         self._validate_inputs()
         
@@ -337,8 +333,7 @@ class QFlex(QFlexBase):
             return self._fit_unconstrained(Y)
         else:
             return solve_with_constraints(Y, self.x_data, self.terms,
-                                         self.gamma, self.constraint_type,
-                                         tc_method=self.tc_method)
+                                         self.gamma, self.constraint_type)
     
     def _fit_unconstrained(self, Y: np.ndarray) -> np.ndarray:
         """Solve the linear system exactly or via least squares."""
