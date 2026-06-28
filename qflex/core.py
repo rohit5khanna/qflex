@@ -5,7 +5,6 @@ Provides the base class and unbounded QFlex distribution.
 """
 
 import numpy as np
-from scipy.linalg import inv, LinAlgError
 from abc import ABC, abstractmethod
 import warnings
 
@@ -336,18 +335,22 @@ class QFlex(QFlexBase):
                                          self.gamma, self.constraint_type)
     
     def _fit_unconstrained(self, Y: np.ndarray) -> np.ndarray:
-        """Solve the linear system exactly or via least squares."""
+        """Fit coefficients by solving Y @ a = x in a least-squares sense.
+
+        Uses the SVD-based solver ``np.linalg.lstsq`` for both the square
+        (exact interpolation) and overdetermined cases. Unlike forming an
+        explicit inverse, this stays numerically stable when the design matrix
+        is ill-conditioned -- for example when the assessed probabilities are
+        symmetric about 0.5 with gamma = 0.5, which makes the matrix nearly
+        rank-deficient. In that case ``inv(Y) @ x`` silently returns a vector
+        that does not interpolate the data, whereas ``lstsq`` recovers the
+        minimum-norm exact (or least-squares) solution.
+        """
         try:
-            if len(self.x_data) == self.terms:
-                # Exact fit: solve Y @ a = x directly
-                coefficients = inv(Y) @ self.x_data
-            else:
-                # Overdetermined: use normal equations
-                YTY_inv = inv(Y.T @ Y)
-                coefficients = YTY_inv @ Y.T @ self.x_data
-        except LinAlgError:
-            raise QFlexError("Design matrix is singular. Check for collinear data.")
-        
+            coefficients, *_ = np.linalg.lstsq(Y, self.x_data, rcond=None)
+        except np.linalg.LinAlgError:
+            raise QFlexError("Least-squares fit failed. Check for collinear or degenerate data.")
+
         return coefficients
     
     def quantile(self, y):

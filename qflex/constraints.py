@@ -11,7 +11,6 @@ Implements various constraint types for fitting QFlex coefficients:
 
 import numpy as np
 from scipy.optimize import minimize, NonlinearConstraint, lsq_linear, LinearConstraint, Bounds
-from scipy.linalg import inv, LinAlgError
 from enum import Enum
 from typing import List
 import warnings
@@ -182,17 +181,16 @@ def solve_with_constraints(Y: np.ndarray,
 
 
 def get_initial_guess(Y: np.ndarray, x_data: np.ndarray, terms: int) -> np.ndarray:
-    """Compute an unconstrained solution to use as initial guess."""
+    """Compute an unconstrained least-squares solution to use as initial guess.
+
+    Uses the SVD-based ``np.linalg.lstsq`` (stable for ill-conditioned design
+    matrices) rather than an explicit inverse.
+    """
     try:
-        if len(x_data) == terms:
-            initial_guess = inv(Y) @ x_data
-        else:
-            YTY = Y.T @ Y
-            YTY_inv = inv(YTY)
-            initial_guess = YTY_inv @ Y.T @ x_data
-    except LinAlgError:
+        initial_guess, *_ = np.linalg.lstsq(Y, x_data, rcond=None)
+    except np.linalg.LinAlgError:
         initial_guess = np.ones(terms) * 0.1
-    
+
     return initial_guess
 
 

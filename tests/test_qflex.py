@@ -115,6 +115,19 @@ class TestQFlex:
         qf = QFlex(x, y, terms=5)
         assert qf.coefficients is not None
 
+    def test_interpolates_ill_conditioned_symmetric(self):
+        """Symmetric probabilities about 0.5 make the design matrix nearly
+        rank-deficient (cond ~ 1e16). The SVD-based fit must still interpolate
+        exactly; an explicit-inverse fit silently fails here (max error ~20)."""
+        y = [0.05, 0.20, 0.35, 0.50, 0.65, 0.80, 0.95]  # mirrored about 0.5
+        x = [1.0, 2.0, 3.0, 10.0, 17.0, 18.0, 19.0]
+        qf = QFlex(x, y, terms=7)  # square system -> exact interpolation expected
+        fitted = qf.quantile(y)
+        np.testing.assert_allclose(
+            fitted, x, atol=1e-6,
+            err_msg="Ill-conditioned square fit failed to interpolate the data",
+        )
+
     def test_invalid_y_raises(self):
         with pytest.raises(QFlexError):
             QFlex([1, 2, 3, 4, 5], [0.0, 0.25, 0.50, 0.75, 1.0])  # y has 0 and 1
