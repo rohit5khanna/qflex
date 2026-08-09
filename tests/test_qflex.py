@@ -181,6 +181,43 @@ class TestConstraints:
         result = qf.check_proposition4()
         assert result['satisfied'], "TC_MAG constraint should satisfy Proposition 4"
 
+    @pytest.mark.parametrize("constraint,leading_only", [
+        (ConstraintType.TL, True),
+        (ConstraintType.TA, False),
+    ])
+    @pytest.mark.parametrize("terms", [8, 10, 14, 20])
+    def test_tail_constraints_attain_bounded_ls_optimum(self, constraint, leading_only, terms):
+        """TL+/TA+ are bound-constrained linear least squares.
+
+        They previously used SLSQP, which returned wildly suboptimal fits from
+        terms=8 and failed outright from terms=11 on ill-conditioned designs.
+        """
+        from scipy.optimize import lsq_linear
+        from qflex.basis import build_design_matrix
+        from qflex.constraints import get_tail_indices
+
+        gamma = 0.5012
+        rng = np.random.default_rng(42)
+        means = np.array([-5.0, 0.0, 5.0])
+        x = np.sort(rng.normal(means[rng.integers(0, 3, 4000)], 1.0))
+        y = np.arange(1, len(x) + 1) / (len(x) + 1)
+
+        qf = QFlex(x, y, terms=terms, constraint_type=constraint)
+        qf.gamma = gamma
+        a = qf._fit_coefficients()
+
+        tail_indices = get_tail_indices(terms, leading_only=leading_only)
+        assert np.all(a[tail_indices] >= -1e-8)
+
+        Y = build_design_matrix(y, terms, gamma)
+        lb = np.full(terms, -np.inf)
+        lb[tail_indices] = 0.0
+        reference = lsq_linear(Y, x, bounds=(lb, np.full(terms, np.inf)), max_iter=20000).x
+
+        sse = np.sum((Y @ a - x) ** 2)
+        sse_reference = np.sum((Y @ reference - x) ** 2)
+        assert sse <= sse_reference * (1 + 1e-6) + 1e-8
+
     def test_check_proposition4_returns_dict(self, basic_data):
         x, y = basic_data
         qf = QFlex(x, y, terms=5)

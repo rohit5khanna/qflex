@@ -20,6 +20,10 @@ from .basis import get_term_structure, BasisType, evaluate_basis_derivative
 PROB_EPS = 1e-12
 PROP4_STRICT_TOLERANCE = 1e-10
 
+# lsq_linear defaults to 100 iterations, which is not always enough for the
+# ill-conditioned design matrices produced by high term counts.
+BOUNDED_LS_MAX_ITER = 20000
+
 
 def _create_prop4_grid():
     """
@@ -203,7 +207,7 @@ def solve_positive_all(Y: np.ndarray, x_data: np.ndarray, terms: int, gamma: flo
     lb[1:] = 0.0
     ub = np.full(terms, np.inf)
     
-    result = lsq_linear(Y, x_data, bounds=(lb, ub))
+    result = lsq_linear(Y, x_data, bounds=(lb, ub), max_iter=BOUNDED_LS_MAX_ITER)
     if not result.success:
         raise QFlexError(f"Positive coefficients optimization failed: {result.message}")
     
@@ -226,34 +230,29 @@ def solve_with_bounds(Y: np.ndarray, x_data: np.ndarray, terms: int,
                      bound_indices: List[int]) -> np.ndarray:
     """
     Helper: minimize ||Y @ a - x||^2 with specified coefficients bounded >= 0.
+
+    This is a bound-constrained *linear* least-squares problem, so it is solved
+    with ``lsq_linear`` (the same solver used by ``solve_positive_all``). A
+    general-purpose nonlinear optimizer is both slower and unreliable here: the
+    design matrix becomes severely ill-conditioned as ``terms`` grows, which
+    makes gradient-based methods stall well short of the optimum.
     """
     lb = np.full(terms, -np.inf)
     for idx in bound_indices:
         lb[idx] = 0.0
     ub = np.full(terms, np.inf)
-    
-    initial_guess = get_initial_guess(Y, x_data, terms)
-    initial_guess = np.maximum(initial_guess, -1e-3)
-    for idx in bound_indices:
-        if initial_guess[idx] < 0:
-            initial_guess[idx] = 1e-6
-    
-    def objective(a):
-        return np.sum((Y @ a - x_data) ** 2)
-    
-    result = minimize(objective, initial_guess, method='SLSQP',
-                     bounds=list(zip(lb, ub)),
-                     options={'ftol': 1e-12, 'maxiter': 1000, 'disp': False})
-    
+
+    result = lsq_linear(Y, x_data, bounds=(lb, ub), max_iter=BOUNDED_LS_MAX_ITER)
+
     if not result.success:
         raise QFlexError(f"Constrained optimization failed: {result.message}")
-    
+
     # Enforce bounds exactly (numerical cleanup)
     coefficients = result.x.copy()
     for idx in bound_indices:
         if coefficients[idx] < 0:
             coefficients[idx] = 0.0
-    
+
     return coefficients
 
 
