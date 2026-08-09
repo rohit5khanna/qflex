@@ -30,6 +30,11 @@ Thumbs.db
 notebooks/__marimo__/
 notebooks/*.html
 
+# WASM build artifacts (built by build_wasm_wheels.py / CI, not committed)
+site/
+_site/
+notebooks/public/*.whl
+
 # IDEs
 .vscode/
 .idea/

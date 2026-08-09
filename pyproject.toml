@@ -25,11 +25,15 @@ classifiers = [
 dependencies = [
     "numpy>=1.24",
     "scipy>=1.10",
-    "cvxpy>=1.3",
 ]
 
 [project.optional-dependencies]
-linear = ["cvxpy>=1.3"]  # kept for backwards compatibility; cvxpy is a core dependency
+# cvxpy gives the fastest/most robust tail-center (Proposition 4) solve. It is
+# OPTIONAL: when absent (e.g. in a WebAssembly/Pyodide runtime, which has no
+# cvxpy build) qflex automatically falls back to an equivalent scipy.optimize
+# formulation, so the library runs with only numpy + scipy.
+linear = ["cvxpy>=1.3"]
+solver = ["cvxpy>=1.3"]
 notebook = ["marimo>=0.9", "matplotlib>=3.7"]
 dev = [
     "pytest>=7.0",
