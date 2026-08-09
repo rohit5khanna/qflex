@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "qflex"
-version = "1.0.0"
+version = "1.1.0"
 description = "QFlex quantile-parameterized distributions with flexible basis functions"
 readme = "README.md"
 license = { file = "LICENSE" }
