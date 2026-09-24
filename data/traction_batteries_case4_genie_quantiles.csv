@@ -1,0 +1,9 @@
+# Quantile assessments extracted from GeNIe CDF panels (Figures 16/18)
+# in Caban et al. (2024). Yellow markers sit at p = 0.05, 0.25, 0.50, 0.75, 0.95;
+# x values calibrated from the published 0–4 Ah axis.
+probability,capacity_ah
+0.05,0.652
+0.25,1.447
+0.50,2.029
+0.75,3.012
+0.95,3.628

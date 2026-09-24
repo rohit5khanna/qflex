@@ -35,6 +35,10 @@ site/
 _site/
 notebooks/public/*.whl
 
+# Script output -- regenerate with scripts/fit_traction_case4_qpds.py
+figures/
+data/*_fit_summary.csv
+
 # IDEs
 .vscode/
 .idea/

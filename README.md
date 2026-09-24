@@ -16,7 +16,16 @@ QFlex is especially well suited for **expert elicitation** (fitting from P10/P50
 pip install qflex
 ```
 
-CVXPY is included as a core dependency for the Proposition 5 (`TC`) linear solver.
+The only required dependencies are NumPy and SciPy.
+
+[CVXPY](https://www.cvxpy.org) is **optional**. It is used by the Proposition 5 (`TC`)
+linear solver when present; without it that solver falls back to SciPy and emits a
+`UserWarning`. Every other constraint type is unaffected. Install it only if you need
+the `TC` path:
+
+```bash
+pip install cvxpy
+```
 
 ---
 
@@ -233,6 +242,23 @@ For restricted domains, QFlex is applied in a transformed space:
 | `LogitQFlex` | `z = ln((x−L)/(U−x))` | `x = L + (U−L) / (1 + exp(−z))` |
 
 Fitting, PDF, CDF, and sampling all happen on z; every output is mapped back to the original x scale transparently.
+
+---
+
+## Examples
+
+`scripts/` holds runnable end-to-end examples; the data they read is in `data/`.
+
+| Script | What it does |
+|---|---|
+| `scripts/fit_traction_case4_qpds.py` | Reproduces Caban et al. (2024) Case 4: fits Metalog and QFlex to vehicle cell capacities at several truncation orders, reports feasibility and mode count for each, and writes CDF/PDF comparison figures. |
+
+```bash
+python scripts/fit_traction_case4_qpds.py
+```
+
+It writes figures to `figures/` and a fit summary to `data/traction_case4_fit_summary.csv`.
+Neither is tracked — rerun the script to regenerate them.
 
 ---
 
