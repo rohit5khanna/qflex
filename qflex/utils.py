@@ -6,6 +6,8 @@ gamma estimation, and Wasserstein distance. These work with any object
 that provides a quantile() method.
 """
 
+import warnings
+
 import numpy as np
 from scipy import integrate, optimize
 from scipy.interpolate import interp1d
@@ -15,6 +17,9 @@ if TYPE_CHECKING:
     from .core import QFlexBase
 
 PROB_EPS = 1e-12
+
+#: Points used to locate the increasing region of Q before inverting it.
+CDF_SCAN_POINTS = 4001
 
 
 def compute_pdf_numerical(quantile_func: Callable, y: np.ndarray, step_size: float = 1e-6) -> np.ndarray:
@@ -65,10 +70,16 @@ def compute_pdf_numerical(quantile_func: Callable, y: np.ndarray, step_size: flo
     if np.any(bad):
         grad[bad] = derivative(y[bad], step_size * 100)
     
-    # Ensure positive gradient (monotonic quantile function)
-    grad = np.where(grad <= 0, np.abs(grad), grad)
-    grad = np.clip(grad, 1e-12, np.inf)
-    
+    # THE SIGN IS INFORMATION, NOT NOISE. This used to read
+    #     grad = np.where(grad <= 0, np.abs(grad), grad)
+    # which reported a positive density wherever the quantile function was
+    # DECREASING -- i.e. exactly where the fit is invalid. It also made the
+    # PDF-positivity half of QFlex._check_feasibility unreachable, since the
+    # PDF could then never be non-positive. A negative gradient now yields a
+    # negative density, and a zero gradient an undefined one, so callers can
+    # see the problem instead of inheriting a plausible-looking number.
+    grad = np.where(grad == 0, np.nan, grad)
+
     return 1.0 / grad
 
 
@@ -96,61 +107,74 @@ def compute_cdf_inverse(quantile_func: Callable, x: np.ndarray,
     x = np.asarray(x, dtype=float)
     x_scalar = x.ndim == 0
     x_flat = x.flatten()
-    
-    def objective(y, x_target):
-        return quantile_func(y) - x_target
-    
-    cdf_vals = np.zeros_like(x_flat)
-    
-    # Get data bounds if available
-    try:
-        if y_data is not None:
-            y_min_data = np.min(y_data)
-            y_max_data = np.max(y_data)
-            x_min_data = quantile_func(y_min_data)
-            x_max_data = quantile_func(y_max_data)
-            is_increasing = x_max_data > x_min_data
+
+    # INVERT ONLY WHERE Q IS ACTUALLY INCREASING.
+    #
+    # A fit can be monotone across the data and inverted beyond it -- on one
+    # real example Q(1e-12) = +24.2 while Q(1-1e-12) = -26.0, with Q properly
+    # increasing in between. The previous implementation handed brentq the
+    # whole [PROB_EPS, 1-PROB_EPS] bracket. Over a bracket containing several
+    # sign changes brentq still converges, silently, to whichever root it
+    # happens to find: cdf(Q(0.5)) came back as 1.0 instead of 0.5. It raised
+    # nothing, so the caller had no way to know.
+    #
+    # So: scan once, take the longest strictly-increasing run, and invert
+    # inside that. For a well-behaved fit this is the whole interval and the
+    # behaviour is unchanged.
+    grid = np.linspace(PROB_EPS, 1 - PROB_EPS, CDF_SCAN_POINTS)
+    q_grid = np.asarray(quantile_func(grid), dtype=float)
+
+    finite = np.isfinite(q_grid)
+    increasing = np.zeros(len(grid) - 1, dtype=bool)
+    increasing[:] = finite[:-1] & finite[1:] & (np.diff(q_grid) > 0)
+
+    # longest run of True in `increasing`
+    best_len = best_start = 0
+    run_len = run_start = 0
+    for i, inc in enumerate(increasing):
+        if inc:
+            if run_len == 0:
+                run_start = i
+            run_len += 1
+            if run_len > best_len:
+                best_len, best_start = run_len, run_start
         else:
-            is_increasing = True
-            x_min_data = x_max_data = None
-    except Exception:
-        is_increasing = True
-        x_min_data = x_max_data = None
-    
+            run_len = 0
+
+    if best_len == 0:
+        # Nowhere increasing: there is no CDF to report.
+        warnings.warn("quantile function is nowhere increasing; cdf is undefined")
+        out = np.full_like(x_flat, np.nan, dtype=float)
+        return out[0] if x_scalar else out.reshape(x.shape)
+
+    lo_i, hi_i = best_start, best_start + best_len
+    y_lo, y_hi = float(grid[lo_i]), float(grid[hi_i])
+    q_lo, q_hi = float(q_grid[lo_i]), float(q_grid[hi_i])
+
+    if best_len < len(increasing):
+        warnings.warn(
+            "quantile function is not monotone over the full probability range; "
+            f"cdf inverted on [{y_lo:.4g}, {y_hi:.4g}] only")
+
+    def objective(y, x_target):
+        return float(quantile_func(np.array([y]))[0]) - x_target
+
+    cdf_vals = np.zeros_like(x_flat, dtype=float)
     for i, x_val in enumerate(x_flat):
-        try:
-            result = optimize.brentq(objective, PROB_EPS, 1 - PROB_EPS, args=(x_val,))
-            cdf_vals[i] = result
-        except ValueError:
-            # Fallback with narrower search range
-            if x_min_data is not None and x_max_data is not None:
-                y_search_min = max(PROB_EPS, y_min_data * 0.9)
-                y_search_max = min(1 - PROB_EPS, y_max_data + (1 - y_max_data) * 0.1)
-                try:
-                    result = optimize.brentq(objective, y_search_min, y_search_max, args=(x_val,))
-                    cdf_vals[i] = result
-                except ValueError:
-                    if is_increasing:
-                        if x_val <= x_min_data:
-                            cdf_vals[i] = 0.0
-                        elif x_val >= x_max_data:
-                            cdf_vals[i] = 1.0
-                        else:
-                            cdf_vals[i] = np.nan
-                    else:
-                        if x_val >= x_min_data:
-                            cdf_vals[i] = 0.0
-                        elif x_val <= x_max_data:
-                            cdf_vals[i] = 1.0
-                        else:
-                            cdf_vals[i] = np.nan
-            else:
+        if x_val <= q_lo:
+            cdf_vals[i] = 0.0
+        elif x_val >= q_hi:
+            cdf_vals[i] = 1.0
+        else:
+            try:
+                cdf_vals[i] = optimize.brentq(objective, y_lo, y_hi, args=(x_val,),
+                                              xtol=1e-14, rtol=8.9e-16, maxiter=200)
+            except (ValueError, RuntimeError):
                 cdf_vals[i] = np.nan
-    
+
     if x_scalar:
         return cdf_vals[0]
-    else:
-        return cdf_vals.reshape(x.shape)
+    return cdf_vals.reshape(x.shape)
 
 
 def compute_moments(quantile_func: Callable, order: int = 4) -> dict:

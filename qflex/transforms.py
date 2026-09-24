@@ -127,8 +127,10 @@ class LogQFlex(QFlexBase):
         exp_Q_Z = np.exp(Q_Z)
         dQ_X = exp_Q_Z * dQ_Z
 
-        # PDF = 1 / dQ_X, ensuring dQ_X > 0
-        dQ_X = np.clip(dQ_X, 1e-12, None)
+        # See QFlex.pdf_analytical: clipping a SIGNED derivative up to 1e-12
+        # reports 1e12 wherever the fit decreases, and caps real spikes there
+        # too. The sign is preserved instead.
+        dQ_X = np.where(dQ_X == 0, np.nan, dQ_X)
 
         return 1.0 / dQ_X
     
@@ -268,8 +270,10 @@ class LogitQFlex(QFlexBase):
         range_scale = self.upper_bound - self.lower_bound
         dQ_X = range_scale * sigma * (1 - sigma) * dQ_Z
 
-        # PDF = 1 / dQ_X, ensuring dQ_X > 0
-        dQ_X = np.clip(dQ_X, 1e-12, None)
+        # See QFlex.pdf_analytical: clipping a SIGNED derivative up to 1e-12
+        # reports 1e12 wherever the fit decreases, and caps real spikes there
+        # too. The sign is preserved instead.
+        dQ_X = np.where(dQ_X == 0, np.nan, dQ_X)
 
         return 1.0 / dQ_X
     

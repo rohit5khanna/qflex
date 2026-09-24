@@ -148,17 +148,19 @@ def evaluate_basis_derivative(y: np.ndarray, basis_type: BasisType, order: int, 
     
     elif basis_type == BasisType.F2_TAIL_LEFT:
         # d/dy [(-1)^(order+1) × ln(y)^order] = order × (-1)^(order+1) × ln(y)^(order-1) / y
+        #
+        # NO CLIP ON ln(y). ln(y) < 0 for every y in (0, 1), and `order - 1` is
+        # an integer, so the power is well defined for negative values. A
+        # previous version clipped ln(y) to [0, inf) whenever the sign factor
+        # was positive -- that is, for every ODD order -- which forced the term
+        # to 0 ** (order-1) = 0. Orders 3, 5, 7, ... therefore returned exactly
+        # zero everywhere, and evaluate_quantile_derivative was wrong from
+        # K = 9 on, where L3 first enters the term structure.
         sign = (-1) ** (order + 1)
-        v = np.log(y)
         y_clipped = np.clip(y, 1e-10, None)
         if order == 1:
             return sign / y_clipped
-        else:
-            if sign < 0:
-                v_clipped = np.clip(v, None, 0)
-            else:
-                v_clipped = np.clip(v, 0, None)
-            return order * sign * (v_clipped ** (order - 1)) / y_clipped
+        return order * sign * (np.log(y_clipped) ** (order - 1)) / y_clipped
     
     elif basis_type == BasisType.F3_CENTER:
         # d/dy (y-γ)^(2*order-1) = (2*order-1) × (y-γ)^(2*order-2)

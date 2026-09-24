@@ -396,8 +396,12 @@ class QFlex(QFlexBase):
         # Compute q(y) = dQ/dy analytically
         q = evaluate_quantile_derivative(y, self.coefficients, self.terms, self.gamma)
 
-        # PDF = 1 / q(y), ensuring q > 0
-        q = np.clip(q, 1e-12, None)
+        # A NEGATIVE q MEANS THE FIT IS DECREASING THERE, NOT THAT THE DENSITY
+        # IS ENORMOUS. Clipping q up to 1e-12 turned every such point into a
+        # density of 1e12 -- the largest representable -- which manufactured a
+        # spike out of infeasibility and capped genuine spikes at the same
+        # value. The sign is preserved instead.
+        q = np.where(q == 0, np.nan, q)
 
         return 1.0 / q
     
