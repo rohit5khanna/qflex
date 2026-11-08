@@ -11,11 +11,11 @@ QFlex is a distribution family that uses custom basis functions to fit quantile 
 | File | Purpose |
 |------|---------|
 | `basis.py` | Basis function definitions and evaluation (constant, tail, center families) |
-| `constraints.py` | Constraint solvers for coefficient estimation (Propositions 3–5) |
+| `constraints.py` | Constraint solvers for coefficient estimation (Theorems 1 and 5, Propositions 3 and 4) |
 | `core.py` | Main `QFlex` class for unbounded distributions |
 | `transforms.py` | `LogQFlex` (semibounded) and `LogitQFlex` (bounded) variants |
 | `utils.py` | Gamma calculation, PDF/CDF computation, moments, and W1 distance |
-| `mono_verification.py` | Proposition 4 verification and monotonicity checks |
+| `mono_verification.py` | Proposition 3 / Theorem 5 verification and monotonicity checks |
 | `__init__.py` | Public API exports |
 
 ## Quick Start
@@ -35,8 +35,8 @@ log_qflex = LogQFlex(x_data, y_data, lower_bound=0)
 # Bounded distribution (e.g., proportions, percentages)
 logit_qflex = LogitQFlex(x_data, y_data, lower_bound=0, upper_bound=1)
 
-# Verify Proposition 4 conditions
-result = qflex.check_proposition4()
+# Verify Proposition 3 (grid tail-centre condition) and Theorem 5
+result = qflex.check_proposition3()
 print(f"Satisfied: {result['satisfied']}, Margin: {result['margin']:.4f}")
 ```
 
@@ -45,24 +45,24 @@ print(f"Satisfied: {result['satisfied']}, Margin: {result['margin']:.4f}")
 | Type | Description |
 |------|-------------|
 | `NONE` | Unconstrained least squares |
-| `A` | All coefficients non-negative (k ≥ 2) |
-| `TL` | Leading tail coefficients non-negative |
-| `TA` | All tail coefficients non-negative |
-| `TC` | Proposition 5: tail-center margin (linear CVXPY solver) |
-| `TC_MAG` | Proposition 4: m_tail > M_center on grid |
+| `A` | All coefficients except the constant a₁ non-negative; Theorem 1, always valid |
+| `TL` | Leading tail coefficients > 0 (Theorem 5; necessary only) |
+| `TA` | All tail coefficients non-negative (not sufficient) |
+| `TC` | Proposition 4: tail-centre coefficient bound; always valid |
+| `TC_MAG` | Proposition 3: m_tail > M_center, with leading tails > 0; valid on the whole evaluated range |
 
 ## Basis Functions
 
 QFlex uses three basis function families:
 
-- **Right tail (f1)**: `-ln(1-p)` raised to powers 1, 2, 3, ...
-- **Left tail (f2)**: `(-1)^(i+1) × [ln(p)]^i` for orders 1, 2, 3, ...
-- **Center (f3)**: `(p - γ)^(2i-1)` for odd powers 1, 3, 5, ...
+- **Right tail R_j (`f1` in code)**: `[-ln(1-p)]^j` for j = 1, 2, 3, ...
+- **Left tail L_j (`f2`)**: `(-1)^(j+1) × [ln(p)]^j` for j = 1, 2, 3, ...
+- **Center C_j (`f3`)**: `(p - γ)^(2j-1)`, i.e. odd powers 1, 3, 5, ...
 
-Terms cycle constant → f1 → f2 → f3 at increasing orders. The default `terms=3` fits a₀, R¹, L¹ (suitable for P10/P50/P90). Increase `terms` to unlock centre and higher-order tail modes.
+Terms cycle constant → R_j → L_j → C_j at increasing orders j. The default `terms=3` fits the constant a₁, R₁ and L₁ (suitable for P10/P50/P90). Increase `terms` to add centre and higher-order tail terms. Coefficients are numbered a₁, …, a_K as in the paper; in code they are 0-based (`coefficients[k-1]`).
 
-The gamma (γ) parameter controls the center of the distribution and is estimated from the data using P10, P50, and P90 quantiles.
+The gamma (γ) parameter anchors the centre terms and is estimated from P10, P50 and P90 of the data: γ = 0.5(1 − SI) with the Kelly skewness index SI, and γ = 0.45 for a symmetric assessment (SI = 0), as in the paper.
 
 ## References
 
-See the QFlex paper for theoretical background on the basis functions, propositions, and constraint formulations.
+Bickel, Colombe and Leibowicz, "The QFlex Distribution" (SSRN 5930859). Theorem and proposition numbers in this package follow that paper; see the top-level README for details.

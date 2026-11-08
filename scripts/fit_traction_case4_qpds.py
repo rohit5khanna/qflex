@@ -23,10 +23,10 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "notebooks"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # scripts/_metalog.py
 
 from qflex import ConstraintType, QFlex  # noqa: E402
-from _metalog import Metalog  # noqa: E402
+from _metalog import Metalog  # noqa: E402  (minimal standalone fitter in scripts/)
 
 DATA = ROOT / "data"
 FIG = ROOT / "figures"

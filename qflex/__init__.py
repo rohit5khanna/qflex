@@ -9,7 +9,7 @@ to ensure valid probability densities.
 from .core import QFlex
 from .transforms import LogQFlex, LogitQFlex
 from .constraints import ConstraintType, QFlexError
-from .mono_verification import check_proposition4, check_delta_p_monotonicity
+from .mono_verification import check_proposition3, check_proposition4, check_delta_p_monotonicity
 from .utils import compute_w1
 
 __all__ = [
@@ -18,9 +18,10 @@ __all__ = [
     'LogitQFlex',
     'QFlexError',
     'ConstraintType',
+    'check_proposition3',
     'check_proposition4',
     'check_delta_p_monotonicity',
     'compute_w1',
 ]
 
-__version__ = '1.1.0'
+__version__ = '1.2.0'

@@ -26,15 +26,6 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# Marimo
-notebooks/__marimo__/
-notebooks/*.html
-
-# WASM build artifacts (built by build_wasm_wheels.py / CI, not committed)
-site/
-_site/
-notebooks/public/*.whl
-
 # Script output -- regenerate with scripts/fit_traction_case4_qpds.py
 figures/
 data/*_fit_summary.csv

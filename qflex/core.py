@@ -8,21 +8,59 @@ import numpy as np
 from abc import ABC, abstractmethod
 import warnings
 
-from .basis import build_design_matrix, evaluate_quantile
+from .basis import (build_design_matrix, evaluate_quantile, evaluate_quantile_logodds,
+                    quantile_limits)
 from .utils import calculate_gamma
 from .constraints import ConstraintType, solve_with_constraints, QFlexError
-from .mono_verification import check_proposition4, check_delta_p_monotonicity
+from .mono_verification import check_proposition3, check_delta_p_monotonicity
 from .utils import compute_pdf_numerical, compute_cdf_inverse, compute_moments
 
 PROB_EPS = 1e-12
+
+
+def _validate_terms(terms) -> int:
+    """terms must be a positive integer (an int, a NumPy integer, or e.g. 5.0)."""
+    if isinstance(terms, bool):
+        raise QFlexError("terms must be a positive integer")
+    try:
+        t = int(terms)
+    except (TypeError, ValueError):
+        raise QFlexError(f"terms must be a positive integer, got {terms!r}")
+    if t != terms or t < 1:
+        raise QFlexError(f"terms must be a positive integer, got {terms!r}")
+    return t
+
+
+def _validate_xy(x_data, y_data, terms: int):
+    """Shared input checks for all QFlex classes; returns float arrays."""
+    try:
+        x = np.asarray(x_data, dtype=float)
+        y = np.asarray(y_data, dtype=float)
+    except (TypeError, ValueError):
+        raise QFlexError("x_data and y_data must be numeric")
+    if x.ndim != 1 or y.ndim != 1:
+        raise QFlexError(f"x_data and y_data must be one-dimensional "
+                         f"(got shapes {x.shape} and {y.shape})")
+    if len(x) != len(y):
+        raise QFlexError("x_data and y_data must have the same length")
+    if not (np.all(np.isfinite(x)) and np.all(np.isfinite(y))):
+        raise QFlexError("x_data and y_data must be finite (no NaN or inf)")
+    if len(x) < terms:
+        raise QFlexError(f"Need at least {terms} data points for a {terms}-term QFlex, got {len(x)}")
+    if np.any(y <= 0) or np.any(y >= 1):
+        raise QFlexError("All y_data values must be in (0, 1)")
+    if len(np.unique(y)) < terms:
+        raise QFlexError(f"Need at least {terms} distinct y values")
+    return x, y
 
 
 class QFlexBase(ABC):
     """
     Abstract base class for all QFlex distribution variants.
     
-    Subclasses only need to implement quantile(). PDF, CDF, sampling, and
-    moments are computed using shared utility functions.
+    Subclasses implement quantile() and pdf_analytical() (the default PDF
+    method). CDF, sampling, moments and the numerical PDF come from shared
+    utility functions.
     """
     
     @abstractmethod
@@ -42,19 +80,20 @@ class QFlexBase(ABC):
         """
         pass
     
-    def pdf(self, y, step_size=0.001, method='numerical'):
+    def pdf(self, y, step_size=0.001, method='analytical'):
         """
-        Compute probability density function.
+        Probability density at the quantile Q(y), i.e. f(Q(y)) = 1 / Q'(y).
 
         Parameters
         ----------
         y : array-like
             Cumulative probabilities in (0, 1).
         step_size : float, optional
-            Step size for finite differences (default 0.001).
-            Only used when method='numerical'.
+            Largest finite-difference step (default 0.001); it shrinks near
+            0 and 1. Only used when method='numerical'.
         method : str, optional
-            Computation method: 'numerical' or 'analytical' (default 'numerical').
+            'analytical' (default; exact derivative of the basis) or
+            'numerical' (central differences).
 
         Returns
         -------
@@ -85,21 +124,54 @@ class QFlexBase(ABC):
         y_data = getattr(self, 'y_data', None)
         return compute_cdf_inverse(self.quantile, x, y_data)
     
-    def sample(self, size=1):
-        """Generate random samples using inverse transform sampling."""
-        u = np.random.uniform(0, 1, size)
+    def sample(self, size=1, random_state=None):
+        """
+        Draw random samples by inverse transform sampling.
+
+        Parameters
+        ----------
+        size : int or tuple
+            Number (or shape) of samples.
+        random_state : None, int or numpy.random.Generator, optional
+            Seed or generator for reproducible draws (default: fresh entropy).
+        """
+        rng = np.random.default_rng(random_state)
+        u = rng.uniform(0.0, 1.0, size)
         return self.quantile(u)
-    
-    def moments(self, order=4):
-        """Compute moments up to the specified order via numerical integration."""
-        return compute_moments(self.quantile, order)
+
+    def moments(self, order=4, clipped=False):
+        """
+        Moments of the fitted distribution, by integrating Q(p) over p.
+
+        Returns a dict with 'mean' and, as ``order`` allows, 'variance', 'std',
+        'skewness', 'kurtosis' (not excess), plus 'raw_k' and 'central_k'.
+
+        By default these are the moments of the fitted QPD itself. Moments that
+        do not exist (a LogQFlex fit whose right tail is too heavy: a positive
+        leading right-tail term of order >= 2, or leading term R_1 with
+        coefficient a_2 and k * a_2 >= 1) are reported as inf with a warning. With ``clipped=True`` the moments are those of the
+        distribution as quantile() and sample() evaluate it, with p held
+        within [1e-12, 1 - 1e-12]; these are always finite.
+        """
+        if clipped:
+            return compute_moments(self.quantile, order)
+        return compute_moments(self.quantile, order,
+                               quantile_logodds=self._quantile_logodds,
+                               moment_exists=self._moment_exists)
+
+    def _quantile_logodds(self, u):
+        """Q as a function of the log-odds of p, without the 1e-12 clip."""
+        return evaluate_quantile_logodds(u, self.coefficients, self.terms, self.gamma)
+
+    def _moment_exists(self, k: int) -> bool:
+        """Whether E[X^k] is finite (always, for unbounded and logit fits)."""
+        return True
 
     def pdf_analytical(self, y):
         """
-        Compute PDF using analytical derivatives (only for QFlex subclasses).
-
-        This is a placeholder that should be overridden by subclasses
-        that have analytical derivative implementations.
+        Compute the PDF from the exact derivative of Q. pdf() uses this by
+        default; every QFlex class overrides it, and a subclass that does
+        not must be called with method='numerical'.
 
         Parameters
         ----------
@@ -121,8 +193,29 @@ class QFlexBase(ABC):
             "Use method='numerical' instead."
         )
 
+    def check_proposition3(self, p_grid=None, num_points=None):
+        """
+        Verify Proposition 3 (grid tail-centre condition m_tail > M_center) and
+        Theorem 5 (leading tail coefficients > 0) for this fit.
+
+        For the log and logit classes the check runs on the fitting scale z,
+        where the coefficients live; the back-transform is increasing, so the
+        result carries over.
+
+        Returns a dict with 'satisfied', 'grid_condition',
+        'theorem5_satisfied', 'm_tail', 'M_center', 'margin', 'q_flex_min',
+        'q_flex_positive', 'leading_right', 'leading_left'.
+        """
+        return check_proposition3(self.coefficients, self.terms, self.gamma,
+                                  p_grid=p_grid, num_points=num_points)
+
+    def check_proposition4(self, p_grid=None, num_points=None):
+        """Backward-compatible name of :meth:`check_proposition3` (the paper's Proposition 3)."""
+        return self.check_proposition3(p_grid=p_grid, num_points=num_points)
+
     def _check_monotonicity(self) -> bool:
-        """Check if the quantile function is strictly increasing."""
+        """δ-p monotonicity (paper's Definition 4, δ = 0.001): Q strictly
+        increasing on the grid 0.001, ..., 0.999."""
         result = check_delta_p_monotonicity(self.quantile, delta_p=0.001)
         return result['satisfied']
 
@@ -141,8 +234,9 @@ class QFlexBase(ABC):
             Raw observations. Will be sorted internally.
         terms : int, optional
             Number of basis terms (default 3).
-        constraint_type : ConstraintType, optional
-            Constraint to apply during fitting (default: unconstrained).
+        constraint_type : ConstraintType or str, optional
+            Constraint to apply during fitting (default: unconstrained);
+            strings such as "A+", "TL+", "TA+", "TC", "TC_mag" work too.
         **kwargs
             Additional arguments passed to the class constructor.
             Use lower_bound for LogQFlex, lower_bound and upper_bound for LogitQFlex.
@@ -159,7 +253,13 @@ class QFlexBase(ABC):
         >>> qf = QFlex.fit_from_data(data, terms=3)
         >>> log_qf = LogQFlex.fit_from_data(data, lower_bound=0, terms=3)
         """
-        data = np.sort(np.asarray(data, dtype=float))
+        terms = _validate_terms(terms)
+        data = np.asarray(data, dtype=float)
+        if data.ndim != 1:
+            raise QFlexError(f"data must be one-dimensional (got shape {data.shape})")
+        if not np.all(np.isfinite(data)):
+            raise QFlexError("data must be finite (no NaN or inf)")
+        data = np.sort(data)
         n = len(data)
         if n < terms:
             raise QFlexError(
@@ -267,13 +367,13 @@ class QFlex(QFlexBase):
     Unbounded QFlex distribution.
     
     The quantile function is a linear combination of basis functions:
-        Q(y) = Σ a_k × basis_k(y)
-    
+        Q(y) = Σ a_k × basis_k(y),  k = 1..terms (a_1 = constant)
+
     Three basis families are used:
-        - Right tail: -ln(1-p) raised to increasing powers
-        - Left tail: alternating-sign powers of ln(p)
-        - Center: odd powers of (p - γ)
-    
+        - Right tail R_j: -ln(1-p) raised to increasing powers
+        - Left tail L_j: -(-ln(p)) raised to increasing powers
+        - Center C_j: odd powers of (p - γ)
+
     Parameters
     ----------
     x_data : array-like
@@ -282,8 +382,9 @@ class QFlex(QFlexBase):
         Corresponding cumulative probabilities in (0, 1).
     terms : int, optional
         Number of terms in the expansion (default 3).
-    constraint_type : ConstraintType, optional
-        Constraint to apply during fitting (default: unconstrained).
+    constraint_type : ConstraintType or str, optional
+        Constraint to apply during fitting (default: unconstrained); strings
+        such as "A+", "TL+", "TA+", "TC", "TC_mag" work too.
     """
     
     def __init__(self,
@@ -291,12 +392,9 @@ class QFlex(QFlexBase):
                  y_data,
                  terms: int = 3,
                  constraint_type: ConstraintType = ConstraintType.NONE):
-        self.x_data = np.asarray(x_data, dtype=float)
-        self.y_data = np.asarray(y_data, dtype=float)
-        self.terms = terms
-        self.constraint_type = constraint_type
-        
-        self._validate_inputs()
+        self.terms = _validate_terms(terms)
+        self.constraint_type = ConstraintType.resolve(constraint_type)
+        self.x_data, self.y_data = _validate_xy(x_data, y_data, self.terms)
         
         # Estimate gamma from the data (controls center basis location)
         self.gamma = calculate_gamma(self.x_data, self.y_data)
@@ -312,17 +410,7 @@ class QFlex(QFlexBase):
     
     def _validate_inputs(self):
         """Validate that inputs are consistent and sufficient for fitting."""
-        if len(self.x_data) != len(self.y_data):
-            raise QFlexError("x_data and y_data must have the same length")
-        
-        if len(self.x_data) < self.terms:
-            raise QFlexError(f"Need at least {self.terms} data points for {self.terms}-term QFlex")
-        
-        if np.any(self.y_data <= 0) or np.any(self.y_data >= 1):
-            raise QFlexError("All y_data values must be in (0, 1)")
-        
-        if len(np.unique(self.y_data)) < self.terms:
-            raise QFlexError(f"Need at least {self.terms} distinct y values")
+        self.x_data, self.y_data = _validate_xy(self.x_data, self.y_data, self.terms)
     
     def _fit_coefficients(self) -> np.ndarray:
         """Fit coefficients using least squares or constrained optimization."""
@@ -344,7 +432,9 @@ class QFlex(QFlexBase):
         symmetric about 0.5 with gamma = 0.5, which makes the matrix nearly
         rank-deficient. In that case ``inv(Y) @ x`` silently returns a vector
         that does not interpolate the data, whereas ``lstsq`` recovers the
-        minimum-norm exact (or least-squares) solution.
+        minimum-norm exact (or least-squares) solution. (Since 1.2.0 an exactly
+        symmetric assessment gets gamma = 0.45, which avoids that particular
+        case, but other near-singular designs remain possible.)
         """
         try:
             coefficients, *_ = np.linalg.lstsq(Y, self.x_data, rcond=None)
@@ -357,18 +447,29 @@ class QFlex(QFlexBase):
         """
         Evaluate the quantile function Q(y).
 
+        Probabilities strictly inside (0, 1) are clipped to [1e-12, 1 - 1e-12].
+        At exactly 0 and 1 the limits are returned (-inf / +inf when the
+        corresponding tail has a positive leading coefficient).
+
         Parameters
         ----------
         y : array-like
-            Cumulative probabilities in (0, 1).
+            Cumulative probabilities in [0, 1].
 
         Returns
         -------
         x : array-like
             Corresponding quantile values.
         """
-        y = np.clip(np.asarray(y, dtype=float), PROB_EPS, 1 - PROB_EPS)
-        return evaluate_quantile(y, self.coefficients, self.terms, self.gamma)
+        y_in = np.asarray(y, dtype=float)
+        out = evaluate_quantile(np.clip(y_in, PROB_EPS, 1 - PROB_EPS),
+                                self.coefficients, self.terms, self.gamma)
+        if np.any((y_in == 0.0) | (y_in == 1.0)):
+            q0, q1 = quantile_limits(self.coefficients, self.terms, self.gamma)
+            out = np.where(y_in == 0.0, q0, np.where(y_in == 1.0, q1, out))
+            if np.ndim(out) == 0:
+                out = float(out)
+        return out
 
     def pdf_analytical(self, y):
         """
@@ -387,7 +488,8 @@ class QFlex(QFlexBase):
         Returns
         -------
         pdf : array-like
-            Probability density values.
+            Probability density values; negative where the fit decreases
+            (an invalid fit), NaN where dQ/dy = 0.
         """
         from .basis import evaluate_quantile_derivative
 
@@ -407,26 +509,17 @@ class QFlex(QFlexBase):
     
     def _check_feasibility(self) -> bool:
         """
-        Check if the distribution produces a valid PDF.
-        
-        A feasible distribution has:
-        1. A strictly increasing quantile function
-        2. A strictly positive PDF everywhere
+        Feasibility in the paper's sense, on the grid p = 0.001, ..., 0.999:
+        1. Q strictly increasing from one grid point to the next
+        2. a strictly positive density at every grid point
+        It does not look beyond the grid; use check_proposition3() for the
+        Theorem 5 tail condition.
         """
         monotonic = self._check_monotonicity()
         
-        # Test PDF on a fine grid
+        # Test the PDF on the same grid
         y_test = 0.001 + np.arange(999) * 0.001
         pdf_vals = self.pdf(y_test)
         pdf_positive = np.all(pdf_vals > 0)
         
         return monotonic and pdf_positive
-    
-    def check_proposition4(self, p_grid=None, num_points=10000):
-        """
-        Verify Proposition 4 conditions (m_tail > M_center).
-        
-        Returns a dict with 'satisfied', 'm_tail', 'M_center', 'margin', etc.
-        """
-        return check_proposition4(self.coefficients, self.terms, self.gamma, 
-                                 p_grid=p_grid, num_points=num_points)

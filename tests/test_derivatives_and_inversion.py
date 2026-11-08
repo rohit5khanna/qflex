@@ -149,3 +149,19 @@ def test_analytical_and_numerical_pdf_agree(terms):
     assert rel.max() < 1e-3, (
         f"K={terms}: analytical and numerical PDF differ by {rel.max():.3e} "
         f"at p={grid[int(np.argmax(rel))]:.4f}")
+
+
+@pytest.mark.parametrize("cls,kwargs", [
+    (LogQFlex, {"lower_bound": 0}),
+    (LogitQFlex, {"lower_bound": 0, "upper_bound": 100}),
+])
+def test_transformed_classes_share_full_api(cls, kwargs, capsys):
+    """summary() and check_proposition4() must work on every class, as the
+    README documents. Both used to raise AttributeError on the transformed
+    variants (no constraint_type attribute, no check_proposition4 method)."""
+    m = cls([12.0, 25.0, 45.0], [0.10, 0.50, 0.90], constraint_type=ConstraintType.A, **kwargs)
+    m.summary()
+    assert "Constraint" in capsys.readouterr().out
+    assert m.constraint_type is ConstraintType.A
+    res = m.check_proposition4()
+    assert {"satisfied", "m_tail", "M_center", "margin"} <= set(res)

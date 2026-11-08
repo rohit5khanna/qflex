@@ -172,14 +172,14 @@ class TestConstraints:
         x, y = basic_data
         qf = QFlex(x, y, terms=5, constraint_type=ConstraintType.TC)
         result = qf.check_proposition4()
-        # TC enforces prop5 which implies prop4 is close to satisfied
+        # TC (Proposition 4) implies the Proposition 3 grid condition
         assert qf.coefficients is not None
 
     def test_constraint_tc_mag(self, basic_data):
         x, y = basic_data
         qf = QFlex(x, y, terms=5, constraint_type=ConstraintType.TC_MAG)
         result = qf.check_proposition4()
-        assert result['satisfied'], "TC_MAG constraint should satisfy Proposition 4"
+        assert result['satisfied'], "TC_MAG constraint should satisfy Proposition 3"
 
     @pytest.mark.parametrize("constraint,leading_only", [
         (ConstraintType.TL, True),
@@ -211,7 +211,9 @@ class TestConstraints:
 
         Y = build_design_matrix(y, terms, gamma)
         lb = np.full(terms, -np.inf)
-        lb[tail_indices] = 0.0
+        # TL+ keeps the leading tails strictly positive (Theorem 5)
+        from qflex.constraints import TL_FLOOR_REL
+        lb[tail_indices] = TL_FLOOR_REL * (x.max() - x.min()) if leading_only else 0.0
         reference = lsq_linear(Y, x, bounds=(lb, np.full(terms, np.inf)), max_iter=20000).x
 
         sse = np.sum((Y @ a - x) ** 2)
