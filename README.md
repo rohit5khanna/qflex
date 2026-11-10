@@ -15,7 +15,7 @@ QFlex is especially well suited for **expert elicitation** (fitting from P10/P50
 Install from the GitHub repository, or from a local copy of it:
 
 ```bash
-pip install git+https://github.com/rohitkhanna/qflex.git
+pip install git+https://github.com/rohit5khanna/qflex.git
 # or, from a downloaded copy
 pip install /path/to/qflex-main
 ```

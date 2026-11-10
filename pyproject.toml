@@ -43,7 +43,7 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/rohitkhanna/qflex"
+Repository = "https://github.com/rohit5khanna/qflex"
 
 [tool.hatch.build.targets.wheel]
 packages = ["qflex"]
